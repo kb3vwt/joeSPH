@@ -19,7 +19,7 @@ class SimulationParams
 {
 public:
   string ini_name;
-  int nParticles, nSteps, SizeX, SizeY, SizeZ;
+  int nParticles, nSteps, SizeX, SizeY, SizeZ, timeStep;
   float InteractionDistance, ParticleMass, BulkModulus, Viscosity, RefMassDensity, Gravity;
 
   SimulationParams (string fname,bool announce)
@@ -34,6 +34,7 @@ public:
     Gravity = INIRDR.GetReal("WorldInfo","Gravity",-1);
     nParticles = INIRDR.GetInteger("WorldInfo","nParticles",-1);
     nSteps = INIRDR.GetInteger("WorldInfo","nSteps",-1);
+    timeStep = INIRDR.GetInteger("WorldInfo","timeStep",-1);
     SizeX = INIRDR.GetInteger("WorldInfo","SizeX",-1);
     SizeY = INIRDR.GetInteger("WorldInfo","SizeY",-1);
     SizeZ = INIRDR.GetInteger("WorldInfo","SizeZ",-1);
@@ -111,12 +112,12 @@ void RectArrangeParticle(SimulationParams Params,Particle *Particles)
     Particles[i].force[2] = 0.0;
 
     xPos += SpacingXYZ;
-    if (xPos > 3*SizeX/4)
+    if (xPos > (3*SizeX/4))
     {
       xPos = SizeX/4;
       yPos += SpacingXYZ;
     }
-    if (yPos > 3*SizeY/4)
+    if (yPos > (3*SizeY/4))
     {
       yPos = SizeY/4;
       zPos += SpacingXYZ;
@@ -126,13 +127,13 @@ void RectArrangeParticle(SimulationParams Params,Particle *Particles)
 
 void Calc_Density(SimulationParams Params,Particle *Particles)
 {
-  int nParticles = Params.nParticles;
+  int nParticles = sizeof(Particles) / sizeof(Particles[0]);
   double m = Params.ParticleMass;
   double h = Params.InteractionDistance;
-  for(int i = 0; i<=nParticles;i++) //For particle i
+  for(int i = 0;i<=nParticles;i++) //For particle i
   {
     double summation = 0;
-    for(int j = 0; j<=nParticles;j++)
+    for(int j = 0;j<=nParticles;j++)
     {
       if(i!=j)
       {
@@ -150,7 +151,8 @@ void Calc_Density(SimulationParams Params,Particle *Particles)
 
 void Calc_Forces(SimulationParams Params,Particle *Particles)
 {
-  int nParticles = Params.nParticles;
+  int nParticles = sizeof(Particles) / sizeof(Particles[0]);
+  //int nParticles = Params.nParticles;
   double m = Params.ParticleMass;
   double k = Params.BulkModulus;
   double mu = Params.Viscosity;
@@ -188,7 +190,7 @@ void Calc_Forces(SimulationParams Params,Particle *Particles)
 
 void Calc_Acc(SimulationParams Params,Particle *Particles)
 {
-  int nParticles = Params.nParticles;
+  int nParticles = sizeof(Particles) / sizeof(Particles[0]);
 
   for(int i = 0; i<nParticles;i++)
   {
@@ -198,19 +200,22 @@ void Calc_Acc(SimulationParams Params,Particle *Particles)
   }
 }
 
+
+
 void OutputCSV(SimulationParams Params,Particle *Particles,int stepNumber)
 {
   std::ofstream file;
   std::stringstream filename;
-  filename << "step" << std::setw(5) << std::setfill('0') << stepNumber << ".csv";
+  filename << "data/step" << std::setw(5) << std::setfill('0') << stepNumber << ".csv";
   file.open(filename.str());
   file << "particleID,Density,xPos,yPos,zPos,xVel,yVel,zVel,xAcc,yAcc,zAcc\n";
-  for(int i = 0;i<=Params.nParticles;i++)
+  for(int i = 0;i<Params.nParticles;i++)
   {
     file << i << "," << Particles[i].rho << "," << Particles[i].pos[0] << "," << Particles[i].pos[1] << "," << Particles[i].pos[2] << "," << Particles[i].vel[0] << "," << Particles[i].vel[1] << "," << Particles[i].vel[2] << "," << Particles[i].acc[0] << "," << Particles[i].acc[1] << "," << Particles[i].acc[2] << "\n";
   }
   //file.close();
 }
+
 
 //////////////////////////////////////////////////////////////////////////
 /*Main Loop                                                             */
@@ -219,20 +224,56 @@ int main()
 {
   //Initialization
   SimulationParams simParams ("sphcfg.ini",true); //Load INI file
-  std::cout << simParams.nParticles << "after ini\n";
   Particle ParticleEnsemble[simParams.nParticles]; //Create Particles
-  std::cout << simParams.nParticles << "after particle create\n";
   RectArrangeParticle(simParams,ParticleEnsemble); //Set initial Conditions
-  std::cout << simParams.nParticles << "after arrange\n";
-  Calc_Density(simParams,ParticleEnsemble);
-  std::cout << simParams.nParticles << "after density\n";
-  //simParams.nParticles = 10000;
-  Calc_Forces(simParams,ParticleEnsemble);
-  std::cout << simParams.nParticles << "after forces\n";
-  Calc_Acc(simParams,ParticleEnsemble);
-  std::cout << simParams.nParticles << "after acc\n";
+  int h = simParams.timeStep;
 
-  OutputCSV(simParams,ParticleEnsemble,0);
-  std::cout << simParams.nParticles << "after csv\n";
+  for(int step = 0;step<simParams.nSteps;step++)
+  {
+    Calc_Density(simParams,ParticleEnsemble);
+    Calc_Forces(simParams,ParticleEnsemble);
+    Calc_Acc(simParams,ParticleEnsemble);
+    if(step%2==0)
+    {
+      for(int i = 0;i<simParams.nParticles;i++)
+      {
+        double vnew[3];
+        vnew[0] = ParticleEnsemble[i].vel[0] + ParticleEnsemble[i].acc[0]*h/2;
+        vnew[1] = ParticleEnsemble[i].vel[1] + ParticleEnsemble[i].acc[1]*h/2;
+        vnew[2] = ParticleEnsemble[i].vel[2] + ParticleEnsemble[i].acc[2]*h/2;
+
+        double xnew[3];
+        xnew[0] = ParticleEnsemble[i].pos[0] + ParticleEnsemble[i].pos[0]*h/2;
+        xnew[1] = ParticleEnsemble[i].pos[1] + ParticleEnsemble[i].vel[1]*h/2;
+        xnew[2] = ParticleEnsemble[i].pos[2] + ParticleEnsemble[i].vel[2]*h/2;
+
+        ParticleEnsemble[i].pos[0] = xnew[0];
+        ParticleEnsemble[i].pos[1] = xnew[1];
+        ParticleEnsemble[i].pos[2] = xnew[2];
+      }
+    }
+    else
+    {
+      for(int i = 0;i<simParams.nParticles;i++)
+      {
+        double vnew[3];
+        vnew[0] = ParticleEnsemble[i].vel[0] + ParticleEnsemble[i].acc[0]*h/2;
+        vnew[1] = ParticleEnsemble[i].vel[1] + ParticleEnsemble[i].acc[1]*h/2;
+        vnew[2] = ParticleEnsemble[i].vel[2] + ParticleEnsemble[i].acc[2]*h/2;
+
+        double xnew[3];
+        xnew[0] = ParticleEnsemble[i].pos[0] + vnew[0]*h/2;
+        xnew[1] = ParticleEnsemble[i].pos[1] + vnew[1]*h/2;
+        xnew[2] = ParticleEnsemble[i].pos[2] + vnew[2]*h/2;
+
+        ParticleEnsemble[i].pos[0] = xnew[0];
+        ParticleEnsemble[i].pos[1] = xnew[1];
+        ParticleEnsemble[i].pos[2] = xnew[2];
+      }
+    }
+    OutputCSV(simParams,ParticleEnsemble,step);
+  }
+
+  //OutputCSV(simParams,ParticleEnsemble,0);
   return 0;
 }
